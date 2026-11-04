@@ -262,6 +262,11 @@ def sdpa_wrapper(
     q = q.transpose(1,2)
     k = k.transpose(1,2)
     v = v.transpose(1,2)
+    if torch.version.hip and q.is_cuda:
+        # ROCm AOTriton attn_fwd is several times slower on these transposed (B,H,N,D) views than on contiguous tensors
+        # (gfx1102, Wan 5B 720p: 4.7 s vs 1.0 s per self-attention); the copies cost ~10 ms and the result is bit-identical.
+        qkv_list.clear()
+        q, k, v = q.contiguous(), k.contiguous(), v.contiguous()
     if attention_mask != None:
         attention_mask = attention_mask.transpose(1,2)
     with sdpa_kernel(SDPBackend.MATH) if _sdpa_requires_math(q, attention_mask) else nullcontext():

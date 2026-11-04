@@ -6422,7 +6422,8 @@ def set_seed(seed):
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
-    torch.backends.cudnn.deterministic = True
+    # On ROCm, deterministic mode restricts MIOpen to its Im3d2Col+GEMM convolutions, ~1.7x slower VAE decoding (gfx1102)
+    torch.backends.cudnn.deterministic = not torch.version.hip
     return seed
 
 def edit_mesh(send_cmd, state, mesh_source, seed, temporal_upsampling, spatial_upsampling, parameter_settings, operation_start_time):
