@@ -291,8 +291,23 @@ def clear_gen_cache():
 
 _deepy_hybrid = None
 
+# gc.freeze() after a model load: the loaded models are millions of long-lived Python objects, and every full gc.collect()
+# (mmgp unloads, pipeline cleanups, automatic collections) walked all of them, 4-5 s each: ~134 s of a single LTX-2.3
+# generation, with the GPU idle. Frozen objects are skipped by collections; release_model() unfreezes them first so a
+# released model is still fully collected. WANGP_GC_FREEZE=0 disables it.
+GC_FREEZE = os.environ.get("WANGP_GC_FREEZE", "1") != "0"
+
+
+def gc_freeze_loaded():
+    if GC_FREEZE:
+        gc.collect()
+        gc.freeze()
+
+
 def release_model():
     global wan_model, offloadobj, reload_needed
+    if GC_FREEZE:
+        gc.unfreeze()
     released = transformer_type if wan_model is not None or offloadobj is not None else None
     wan_model = None
     clear_gen_cache()
@@ -4599,6 +4614,7 @@ def load_models(model_type, override_profile = -1, output_type="video", config_i
         loaded_config = config_id or ""
         loaded_compile = compilation
         loaded_quantization = (transformer_qtype, text_encoder_qtype)
+    gc_freeze_loaded()
     return wan_model, offloadobj
 
 if not "P" in preload_model_policy:

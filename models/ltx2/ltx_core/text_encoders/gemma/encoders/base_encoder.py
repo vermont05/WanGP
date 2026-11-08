@@ -49,6 +49,10 @@ class GemmaTextEncoderModelBase(torch.nn.Module):
             self.feature_extractor_linear = None
 
     def encode_raw(self, text: str, padding_side: str = "left") -> "RawTextEmbeddings":
+        from shared.gemma_igpu import ExternalGemmaStub, encode_raw_external
+        if isinstance(self.model, ExternalGemmaStub):  # LTX_GEMMA_IGPU: Gemma runs on the iGPU (llama.cpp)
+            hidden_states, attention_mask = encode_raw_external(self.tokenizer, text)
+            return RawTextEmbeddings(hidden_states, attention_mask, padding_side)
         token_pairs = self.tokenizer.tokenize_with_weights(text)["gemma"]
         input_ids = torch.tensor([[t[0] for t in token_pairs]], device=self.model.device)
         attention_mask = torch.tensor([[w[1] for w in token_pairs]], device=self.model.device)
@@ -456,6 +460,12 @@ def build_gemma_text_encoder(
     from accelerate import init_empty_weights
     with init_empty_weights():
         text_encoder = GemmaTextEncoderModelBase(feature_extractor_linear=None, tokenizer=None, model=None, dtype=default_dtype)
+    from shared.gemma_igpu import ExternalGemmaStub, gguf_path as _gemma_igpu_gguf
+    if not gemma4 and _gemma_igpu_gguf():  # Gemma 3 on the iGPU: load only the tokenizer here
+        text_encoder.model = ExternalGemmaStub()
+        text_encoder.tokenizer = LTXVGemmaTokenizer(tokenizer_path, 1024)
+        text_encoder._gemma_root = side_files_root
+        return text_encoder
     if gemma4:
         from ..gemma4_unified import Gemma4UnifiedForCausalLM, register_gemma4_config
         register_gemma4_config()
